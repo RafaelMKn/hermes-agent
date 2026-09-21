@@ -10,6 +10,7 @@ import {
   $connectionRequests,
   type ConnectionRequest,
   type ConnectionTarget,
+  normalizeConnectionRequest,
   setConnectionRequest
 } from '@/store/connection-request'
 import { $gateway, setPrimaryGateway } from '@/store/gateway'
@@ -132,6 +133,60 @@ describe('the MCP setup card', () => {
       result: { targets: [{ env: { LINEAR_TEAM: 'workspace' }, name: 'linear', status: 'approved' }] },
       session_id: SESSION_ID
     })
+  })
+
+  it('sends status open for an app-based MCP target', async () => {
+    const rpc = vi.fn().mockResolvedValue({ status: 'ok', settled: false })
+    const request = normalizeConnectionRequest(
+      {
+        deadline_at: REQUEST.deadlineAt,
+        op_id: REQUEST.opId,
+        seq: REQUEST.seq,
+        targets: [
+          {
+            action: 'connect',
+            detail: 'Open the vendor app to start its tool server.',
+            kind: 'app_based_mcp',
+            name: 'vendor-mcp',
+            open_supported: true,
+            state: 'pending'
+          }
+        ],
+        timeout_seconds: 120,
+        tool_call_id: REQUEST.toolCallId
+      },
+      SESSION_ID
+    )!
+    $gateway.set({ request: rpc } as never)
+    setConnectionRequest(request)
+
+    renderTool()
+    fireEvent.click(screen.getByRole('button', { name: 'Open' }))
+
+    await waitFor(() => expect(rpc).toHaveBeenCalledTimes(1))
+    expect(rpc).toHaveBeenCalledWith('connection.respond', {
+      op_id: 'operation-1',
+      result: { targets: [{ name: 'vendor-mcp', status: 'open' }] },
+      session_id: SESSION_ID
+    })
+  })
+
+  it('renders an unavailable app-based MCP target without a verb', () => {
+    const target: ConnectionTarget = {
+      ...LINEAR,
+      detail: 'This tool server is unavailable on this system.',
+      kind: 'app_based_mcp',
+      name: 'vendor-mcp',
+      openSupported: true,
+      state: 'unavailable'
+    }
+    setConnectionRequest({ ...REQUEST, targets: [target] })
+
+    renderTool()
+
+    expect(screen.getByText(target.detail)).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Open' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Connect' })).toBeNull()
   })
 
   it('lists every target once settled, in the same three words as the connector card', () => {

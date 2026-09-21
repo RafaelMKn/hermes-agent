@@ -6,6 +6,7 @@ export const en: Translations = {
   connectors: {
     title: 'Connect your apps',
     connect: 'Connect',
+    open: 'Open',
     skip: 'Not now',
     cancel: 'Stop waiting',
     retry: 'Try again',

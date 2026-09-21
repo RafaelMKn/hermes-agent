@@ -267,17 +267,21 @@ export function McpSetupOffer({ action, owner, request }: McpSetupOfferProps) {
   return (
     <div className="my-2 grid min-w-0 max-w-lg gap-1" data-connector-offer ref={cardRef}>
       <ConnectorCard title={TITLE[action](copy)}>
-        {request.targets.map(target => (
-          <McpSetupRow
-            action={action}
-            key={target.name}
-            onReissue={() => void reissue(target.name)}
-            reissueBlocked={!owner || reissuing.size > 0}
-            reissuing={reissuing.has(target.name)}
-            request={request}
-            target={target}
-          />
-        ))}
+        {request.targets.map(target =>
+          target.kind === 'app_based_mcp' && target.state !== 'connected' ? (
+            <AppBasedMcpRow key={target.name} request={request} target={target} />
+          ) : (
+            <McpSetupRow
+              action={action}
+              key={target.name}
+              onReissue={() => void reissue(target.name)}
+              reissueBlocked={!owner || reissuing.size > 0}
+              reissuing={reissuing.has(target.name)}
+              request={request}
+              target={target}
+            />
+          )
+        )}
       </ConnectorCard>
       {unresolved ? (
         <div className="px-3.5">
@@ -286,6 +290,57 @@ export function McpSetupOffer({ action, owner, request }: McpSetupOfferProps) {
           </Button>
         </div>
       ) : null}
+    </div>
+  )
+}
+
+interface AppBasedMcpRowProps {
+  request: ConnectionRequest
+  target: ConnectionTarget
+}
+
+function AppBasedMcpRow({ request, target }: AppBasedMcpRowProps) {
+  const { t } = useI18n()
+  const copy = t.assistant.mcpSetup
+  const phase = CONNECTOR_CARD_PHASES[target.state]
+  const actionable = target.state === 'pending' || target.state === 'failed' || target.state === 'expired'
+  const [sentAtSeq, setSentAtSeq] = useState<null | number>(null)
+  const sending = sentAtSeq !== null && request.seq <= sentAtSeq
+
+  const respond = async (status: 'approved' | 'open') => {
+    setSentAtSeq(request.seq)
+
+    try {
+      const sent = await respondToConnectionRequest(request, { targets: [{ name: target.name, status }] })
+
+      if (!sent) {
+        setSentAtSeq(null)
+      }
+    } catch (error) {
+      notifyError(error, copy.sendFailed)
+      setSentAtSeq(null)
+    }
+  }
+
+  const status = target.openSupported ? 'open' : 'approved'
+  const actionRow: ConnectorRowAction | undefined = actionable
+    ? {
+        busy: sending,
+        disabled: sending,
+        label: target.openSupported ? t.connectors.open : t.connectors.connect,
+        onClick: () => void respond(status)
+      }
+    : undefined
+
+  return (
+    <div className={target.state === 'unavailable' ? 'opacity-50' : undefined}>
+      <ConnectorRow
+        action={actionRow}
+        connector={{ name: target.name, title: target.app ?? prettyName(target.name) }}
+        cue={target.detail}
+        mark={phase.mark}
+        markLabel={MARK_LABEL[phase.mark](t.connectors)}
+      />
     </div>
   )
 }

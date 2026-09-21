@@ -98,6 +98,74 @@ describe('connection-request store', () => {
     expect(parsed?.settled).toBe(false)
   })
 
+  it('normalizes an app-based MCP target from the wire snapshot', () => {
+    const parsed = normalizeConnectionRequest(
+      {
+        ...WIRE,
+        targets: [
+          {
+            action: 'connect',
+            app: 'vendor-app',
+            app_version: '2.3.0',
+            availability: 'installed_not_running',
+            endpoint: 'http://127.0.0.1:18100/gateway',
+            failure_reason: 'startup_timeout',
+            kind: 'app_based_mcp',
+            launch_requested: true,
+            launched_at: 1_800_000_001,
+            min_version: '2.0.0',
+            name: 'vendor-mcp',
+            open_supported: true,
+            state: 'failed'
+          }
+        ]
+      },
+      's1'
+    )
+
+    expect(parsed?.targets[0]).toMatchObject({
+      app: 'vendor-app',
+      appVersion: '2.3.0',
+      availability: 'installed_not_running',
+      endpoint: 'http://127.0.0.1:18100/gateway',
+      failureReason: 'startup_timeout',
+      kind: 'app_based_mcp',
+      launchRequested: true,
+      launchedAt: 1_800_000_001,
+      minVersion: '2.0.0',
+      openSupported: true
+    })
+  })
+
+  it('clears launchedAt when a later full snapshot omits launched_at', () => {
+    const initial = normalizeConnectionRequest(
+      {
+        ...WIRE,
+        targets: [
+          {
+            action: 'connect',
+            kind: 'app_based_mcp',
+            launched_at: 1_800_000_001,
+            name: 'vendor-mcp',
+            state: 'initiated'
+          }
+        ]
+      },
+      's1'
+    )!
+
+    const updated = applyOperationStatus(initial, {
+      deadline_at: WIRE.deadline_at,
+      op_id: WIRE.op_id,
+      seq: initial.seq + 1,
+      settled: false,
+      settled_by: null,
+      targets: [{ action: 'connect', kind: 'app_based_mcp', name: 'vendor-mcp', state: 'failed' }]
+    })
+
+    expect(updated.targets[0].launchedAt).toBeNull()
+  })
+
   it('binds to the model tool call that opened the operation, on a live request and on resume', () => {
     expect(normalizeConnectionRequest(WIRE, 's1')?.toolCallId).toBe('call-1')
   })

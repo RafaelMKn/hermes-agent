@@ -50,6 +50,15 @@ export interface ConnectionTarget {
   requiredEnv: SetupField[]
   instructions: string | null
   discoveryError: string | null
+  app?: string | null
+  availability?: string | null
+  appVersion?: string | null
+  minVersion?: string | null
+  endpoint?: string | null
+  openSupported?: boolean
+  launchRequested?: boolean
+  launchedAt?: number | null
+  failureReason?: ConnectionOperationTarget['failure_reason']
 }
 
 /** The session's connection operation. `deadlineAt`, `opId`, `targets[].state`, `settled` and
@@ -70,10 +79,11 @@ export interface ConnectionRequest {
   sessionId: string | null
 }
 
-/** Answers the card may give for one target: the user said no, or the user consented and the backend
- *  does the work. The card never reports an outcome; only the backend moves a target. */
+/** Answers the card may give for one target: skip it, connect it, or open its app. The card never
+ *  reports an outcome; only the backend moves a target. */
 export type ConnectionTargetOutcome =
   | { name: string; status: 'skipped' }
+  | { name: string; status: 'open' }
   | { env?: Record<string, string>; name: string; status: 'approved' }
 
 export interface ConnectionOutcome {
@@ -122,16 +132,25 @@ function parseTarget(entry: ConnectionOperationTarget): ConnectionTarget | null 
 
   return {
     action: targetAction(entry.action) ?? 'install',
+    app: entry.app ?? null,
+    availability: entry.availability ?? null,
+    appVersion: entry.app_version ?? null,
     connectUrl: entry.connect_url ?? null,
     detail: entry.detail ?? '',
-    kind: entry.kind === 'connector' ? 'connector' : 'mcp',
+    discoveryError: entry.discovery_error ?? null,
+    endpoint: entry.endpoint ?? null,
+    failureReason: entry.failure_reason ?? null,
+    instructions: entry.instructions ?? null,
+    kind: entry.kind,
+    launchRequested: entry.launch_requested ?? false,
+    launchedAt: entry.launched_at ?? null,
+    minVersion: entry.min_version ?? null,
     name,
+    openSupported: entry.open_supported ?? false,
     state: targetState(entry.state) ?? 'pending',
     tools: entry.tools ?? [],
     connectionId: entry.connection_id ?? '',
-    requiredEnv: envFields(entry.required_env),
-    instructions: entry.instructions ?? null,
-    discoveryError: entry.discovery_error ?? null
+    requiredEnv: envFields(entry.required_env)
   }
 }
 
@@ -175,13 +194,14 @@ export function applyOperationStatus(
     return request
   }
 
-  const byName = new Map(status.targets.map(target => [target.name, target] as const))
+  const byName = new Map(request.targets.map(target => [target.name, target] as const))
+  const targets = status.targets
+    .map(live => {
+      const target = byName.get(live.name)
 
-  const targets = request.targets.map(target => {
-    const live: ConnectionOperationTarget | undefined = byName.get(target.name)
-
-    return live ? mergeLiveTarget(target, live) : target
-  })
+      return target ? mergeLiveTarget(target, live) : parseTarget(live)
+    })
+    .filter((target): target is ConnectionTarget => target !== null)
 
   const settledBy = settleReason(status.settled_by) ?? null
 
@@ -191,6 +211,7 @@ export function applyOperationStatus(
     request.seq === status.seq &&
     request.settled === status.settled &&
     request.settledBy === settledBy &&
+    targets.length === request.targets.length &&
     targets.every((target, index) => target === request.targets[index])
 
   return unchanged
@@ -199,24 +220,29 @@ export function applyOperationStatus(
 }
 
 function mergeLiveTarget(target: ConnectionTarget, live: ConnectionOperationTarget): ConnectionTarget {
-  const next: ConnectionTarget = {
-    ...target,
-    connectUrl: live.connect_url ?? target.connectUrl,
-    detail: live.detail ?? target.detail,
-    state: live.state,
-    tools: live.tools ?? target.tools,
-    connectionId: live.connection_id ?? target.connectionId,
-    requiredEnv: live.required_env ? envFields(live.required_env) : target.requiredEnv,
-    instructions: live.instructions === undefined ? target.instructions : live.instructions,
-    discoveryError: live.discovery_error === undefined ? target.discoveryError : live.discovery_error
+  const next = parseTarget(live)
+
+  if (!next) {
+    return target
   }
 
   const same =
+    next.action === target.action &&
+    next.app === target.app &&
+    next.availability === target.availability &&
+    next.appVersion === target.appVersion &&
     next.connectUrl === target.connectUrl &&
     next.connectionId === target.connectionId &&
     next.detail === target.detail &&
-    next.instructions === target.instructions &&
     next.discoveryError === target.discoveryError &&
+    next.endpoint === target.endpoint &&
+    next.failureReason === target.failureReason &&
+    next.instructions === target.instructions &&
+    next.kind === target.kind &&
+    next.launchRequested === target.launchRequested &&
+    next.launchedAt === target.launchedAt &&
+    next.minVersion === target.minVersion &&
+    next.openSupported === target.openSupported &&
     next.state === target.state &&
     next.tools.length === target.tools.length &&
     next.tools.every((tool, index) => tool === target.tools[index]) &&
