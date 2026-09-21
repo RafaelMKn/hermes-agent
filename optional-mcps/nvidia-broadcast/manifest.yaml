@@ -1,0 +1,43 @@
+manifest_version: 1
+
+name: nvidia-broadcast
+description: NVIDIA Broadcast provides microphone and camera effect tools.
+
+transport:
+  type: http
+  url: http://127.0.0.1:18100/gateway
+
+auth:
+  type: none
+
+tools: {}
+
+suggest:
+  keywords:
+    - audio
+    - video
+    - microphone
+    - camera
+  applications:
+    - NVIDIA Broadcast
+
+app:
+  win32:
+    presence: executable
+    location: "%ProgramFiles%\\NVIDIA Corporation\\NVIDIA Broadcast\\NVIDIA Broadcast.exe"
+    version:
+      kind: pe_resource
+    liveness:
+      kind: none
+
+requires:
+  app: true
+  min_version: "2.3.0"
+
+launch:
+  win32:
+    command: "%ProgramFiles%\\NVIDIA Corporation\\NVIDIA Broadcast\\NVIDIA Broadcast.exe"
+
+visibility: guest_onboarding
+
+post_install: Install NVIDIA Broadcast 2.3.0 or newer; the server answers only while the application window is open.

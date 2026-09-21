@@ -1,0 +1,62 @@
+manifest_version: 1
+
+name: app-based-fixture
+description: Application-hosted MCP fixture with every optional manifest key set.
+source: https://fixture.invalid/docs
+
+transport:
+  type: http
+  url: http://127.0.0.1:1/mcp
+
+auth:
+  type: none
+
+tools:
+  default_enabled:
+    - fixture_tool
+
+suggest:
+  keywords:
+    - fixture
+  hosts:
+    - fixture.invalid
+  applications:
+    - Fixture App
+  examples:
+    - Use the Fixture tool.
+
+app:
+  win32:
+    presence: executable
+    location: C:/Fixture/App/app.exe
+    version:
+      kind: uninstall_registry
+      display_name_prefix: Fixture App
+    liveness:
+      kind: server_json
+      path: "%LOCALAPPDATA%/Fixture/server.json"
+      pid_key: pid
+      url_key: http
+      token_key: token
+      endpoint_path: /mcp
+  darwin:
+    presence: bundle
+    location: /Applications/Fixture.app
+    version:
+      kind: plist
+    liveness:
+      kind: none
+
+requires:
+  app: true
+  min_version: "1.2"
+
+launch:
+  win32:
+    command: C:/Fixture/App/app.exe
+  darwin:
+    command: /Applications/Fixture.app/Contents/MacOS/Fixture
+
+visibility: public
+
+post_install: Fixture text.

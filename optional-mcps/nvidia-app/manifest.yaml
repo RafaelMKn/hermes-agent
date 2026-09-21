@@ -1,0 +1,45 @@
+manifest_version: 1
+
+name: nvidia-app
+description: NVIDIA App provides GPU driver, display, and game-setting tools.
+
+transport:
+  type: http
+  url: http://127.0.0.1:47985/mcp
+
+auth:
+  type: none
+
+tools: {}
+
+suggest:
+  keywords:
+    - gpu
+    - driver
+    - display
+    - game settings
+  applications:
+    - NVIDIA App
+
+app:
+  win32:
+    presence: executable
+    location: "%ProgramFiles%\\NVIDIA Corporation\\NVIDIA App\\CEF\\NVIDIA App.exe"
+    version:
+      kind: uninstall_registry
+      display_name_prefix: NVIDIA App
+    liveness:
+      kind: server_json
+      path: "%LOCALAPPDATA%\\NVIDIA Corporation\\NVIDIA App\\McpServer\\server.json"
+      pid_key: pid
+      url_key: http
+      token_key: token
+      endpoint_path: /mcp
+
+requires:
+  app: true
+  min_version: "11.0.9"
+
+visibility: guest_onboarding
+
+post_install: Install NVIDIA App 11.0.9 or newer; its server runs as a Windows service and needs no open window.

@@ -1,0 +1,38 @@
+manifest_version: 1
+
+name: rtx-remix
+description: RTX Remix provides tools for assets, materials, and lighting in an open project. The install root is chosen at install time; this manifest assumes the documented default.
+
+transport:
+  type: http
+  url: http://127.0.0.1:8000/mcp/
+
+auth:
+  type: none
+
+tools: {}
+
+suggest:
+  keywords:
+    - game remastering
+    - assets
+    - materials
+    - lighting
+  applications:
+    - RTX Remix
+
+app:
+  win32:
+    presence: executable
+    location: "%LOCALAPPDATA%\\NVIDIA Corporation\\RTX Remix\\lightspeed.app.trex.stagecraft.headless.bat"
+    version:
+      kind: none
+    liveness:
+      kind: none
+
+requires:
+  app: true
+
+visibility: guest_onboarding
+
+post_install: Install RTX Remix and start its headless server before connecting.
