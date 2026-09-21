@@ -61,7 +61,6 @@ def _configured_names() -> List[str]:
 
 
 def app_based_names(names: List[str]) -> List[str]:
-    """The targets whose catalog entry is hosted by an application; they run the ``app_based_mcp`` kind."""
     from hermes_cli.mcp_catalog import get_entry
 
     out = []
@@ -803,13 +802,12 @@ def _off_desktop_result(runner: _Runner, names: List[str], action: str, session_
     return json.dumps(payload, ensure_ascii=False)
 
 
-# op_id -> the app-based kind's runner, reachable from the RPC thread for Open and Connect.
+# op_id -> runner; connection.respond arrives on the RPC thread and needs the same object the tool thread holds.
 _APP_RUNNERS: Dict[str, Any] = {}
 
 
 def _run_app_based(names: List[str], *, connection_callback: Any, session_key: str,
                    tool_call_id: Optional[str]) -> str:
-    """The ``app_based_mcp`` journey: install the server block if absent, then observe the application."""
     from tools.connectors.app_based_mcp import NOTE as APP_NOTE
     from tools.connectors.app_based_mcp import Runner as AppRunner
 
@@ -846,15 +844,22 @@ def _run_app_based(names: List[str], *, connection_callback: Any, session_key: s
 
 
 def _ensure_installed(names: List[str]) -> None:
-    """Write the manifest's server block for an application-hosted entry that has none; no probe, no prompt."""
+    """A block from an earlier install at the manifest's url gains ``catalog_name``; any other url is the user's own server."""
     from hermes_cli.mcp_catalog import card_install_config, installed_servers
     from hermes_cli.mcp_config import _save_mcp_server
 
     present = installed_servers()
     for name in names:
-        if name in present:
-            continue
-        if not _save_mcp_server(name, card_install_config(_catalog_entry(name))):
+        entry = _catalog_entry(name)
+        block = present.get(name)
+        if isinstance(block, dict):
+            same_url = str(block.get("url") or "").rstrip("/") == str(entry.transport.url or "").rstrip("/")
+            if block.get("catalog_name") or not same_url:
+                continue
+            block = {**block, "catalog_name": name}
+        else:
+            block = card_install_config(entry)
+        if not _save_mcp_server(name, block):
             raise RuntimeError(f"'{name}' was rejected: suspicious command/args configuration")
 
 

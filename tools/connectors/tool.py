@@ -31,7 +31,7 @@ def manage_connections(
     if action_error:
         return tool_error(action_error)
 
-    if action in MCP_ACTIONS:
+    if action in MCP_ACTIONS or (action == "connect" and mcp_targets):
         return run_mcp_operation(
             mcp_targets, action, backend=mcp_backend,
             connection_callback=connection_callback, session_id=session_id, tool_call_id=tool_call_id,
