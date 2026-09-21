@@ -86,6 +86,36 @@ def _pgroup_alive(pgid: Optional[int]) -> bool:
         return False
 
 
+class LiveEndpointUnavailable(ConnectionError):
+    """The server's runtime file did not name a usable endpoint; the configured url is not a substitute."""
+
+
+def _live_endpoint(server_name: str, config: dict) -> Optional[tuple]:
+    """The endpoint and auth header the manifest's runtime file holds now; None for a server without one.
+
+    Read on every attempt and never written back: the port changes when the application restarts."""
+    catalog_name = config.get("catalog_name")
+    if not catalog_name:
+        return None
+    from agent.redact import register_vault_redaction_value
+    from hermes_cli.mcp_catalog import get_entry
+    from hermes_platform.host import facts
+    from hermes_platform.resolver.app import AppResolver
+
+    entry = get_entry(str(catalog_name), include_hidden=True)
+    definition = entry.app_for(facts.os_family()) if entry is not None else None
+    if definition is None or definition.liveness_kind != "server_json":
+        return None
+    endpoint = AppResolver(definition).endpoint()
+    if endpoint is None:
+        raise LiveEndpointUnavailable(
+            f"MCP server '{server_name}': the application's runtime file names no usable endpoint; "
+            "start the application and connect again")
+    if endpoint.token:
+        register_vault_redaction_value(endpoint.token)
+    return endpoint.url, ({"Authorization": f"Bearer {endpoint.token}"} if endpoint.token else {})
+
+
 class MCPServerTransportMixin:
     """Methods of :class:`tools.mcp_tool.MCPServerTask` (mixed in; relies on its attributes)."""
 
@@ -504,9 +534,13 @@ class MCPServerTransportMixin:
                               "mcp.client.streamable_http is not available. "
                               "Upgrade the mcp package to get HTTP support.")
         url = config["url"]
+        headers = dict(config.get("headers") or {})
+        live = _live_endpoint(self.name, config)
+        if live is not None:
+            url, session_headers = live
+            headers.update(session_headers)
         logger.debug("MCP server '%s': connecting to %s", self.name, url)
         self._http_rejection = {}  # last 4xx/5xx the owned client saw this attempt (recorder hook)
-        headers = dict(config.get("headers") or {})
         # Agent Plugins v1 strict_redirect_headers: configured headers MUST NOT follow a cross-origin
         # redirect — capture their names BEFORE client-generated headers are merged in.
         configured_header_names = {key.lower() for key in headers}

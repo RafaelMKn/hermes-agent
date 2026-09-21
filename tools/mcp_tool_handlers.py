@@ -692,7 +692,8 @@ def _make_check_fn(server_name: str):
 def _catalog_app_offerable(server_name: str) -> bool:
     """True unless a catalog manifest with the same transport endpoint requires an application this host lacks.
 
-    Matching is on the endpoint (http url or stdio command), not the server name: a user's own server that
+    Matching is on the block's ``catalog_name`` (written by the catalog installer) or, absent that, the
+    endpoint (http url or stdio command); never the server name alone, so a user's own server that
     happens to share a manifest's name keeps its tools.
     """
     try:
@@ -700,13 +701,18 @@ def _catalog_app_offerable(server_name: str) -> bool:
         from hermes_platform.resolver.availability import availability
     except ImportError:
         return True
-    entry = get_entry(server_name)
-    if entry is None or not entry.requires_app:
-        return True
     from hermes_cli.mcp_config import _get_mcp_servers
 
     config = _get_mcp_servers().get(server_name) or {}
-    if not _same_endpoint(config, entry.transport):
+    catalog_name = config.get("catalog_name")
+    if catalog_name:
+        # A manifest the visibility gate hides is not offerable, whatever its availability.
+        entry = get_entry(str(catalog_name), include_hidden=True)
+        if entry is None or get_entry(str(catalog_name)) is None:
+            return False
+        return availability(entry).offerable
+    entry = get_entry(server_name)
+    if entry is None or not entry.requires_app or not _same_endpoint(config, entry.transport):
         return True
     return availability(entry).offerable
 

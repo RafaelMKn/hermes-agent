@@ -284,7 +284,9 @@ class MCPServerRunMixin:
             # Content-type preflight (Streamable HTTP only; SSE serves text/event-stream): a
             # web-app root returns HTML and would hang the SDK for connect_timeout. Skipped once
             # _ready was ever set and for OAuth servers (a token-less probe sees HTML/401).
+            # A catalog_name block resolves its real url per attempt; its configured url is a placeholder.
             if (config.get("transport") != "sse" and not config.get("skip_preflight")
+                    and not config.get("catalog_name")
                     and not self._ready.is_set() and self._auth_type != "oauth"):
                 await self._preflight_content_type(
                     config["url"], headers=dict(config.get("headers") or {}),
