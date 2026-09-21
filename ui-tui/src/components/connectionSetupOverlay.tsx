@@ -51,6 +51,14 @@ const isAuthorizedWithoutTools = (target: ConnectionOperationTarget | null): boo
 const isAwaitingBrowser = (target: ConnectionOperationTarget | null): boolean =>
   target?.state === 'initiated' && Boolean(target.connect_url)
 
+const isAppBasedActionable = (target: ConnectionOperationTarget): boolean =>
+  target.kind === 'app_based_mcp' && ['pending', 'failed', 'expired'].includes(target.state)
+
+const isAppBasedFocusable = (target: ConnectionOperationTarget): boolean =>
+  !['connected', 'skipped', 'unavailable'].includes(target.state)
+
+const appBasedOpenSupported = (target: ConnectionOperationTarget): boolean => Boolean(target.open_supported)
+
 /** Key routing while the field list and the Connect/Cancel selector are on screen. */
 function handleFormKey(key: InputKey, h: FormKeyHandlers): void {
   const rows = h.fieldCount + 1
@@ -133,6 +141,40 @@ function FieldRow({ cols, draftValue, field, focused, onChange, onSubmit, showSe
   )
 }
 
+interface AppBasedMcpRowsProps {
+  focusedName: string | undefined
+  t: Theme
+  targets: ConnectionOperationTarget[]
+}
+
+function AppBasedMcpRows({ focusedName, t, targets }: AppBasedMcpRowsProps) {
+  return (
+    <Box flexDirection="column">
+      {targets.map(item => {
+        const focused = item.name === focusedName
+        const color = item.state === 'connected'
+          ? t.color.ok
+          : item.state === 'failed'
+            ? t.color.error
+            : item.state === 'initiated' || item.state === 'unavailable'
+              ? t.color.muted
+              : focused
+                ? t.color.accent
+                : t.color.muted
+
+        return (
+          <Box flexDirection="column" key={item.name}>
+            <Text bold={focused} color={color}>
+              {focused ? '▸ ' : '  '}{item.name}
+            </Text>
+            {item.detail ? <Text color={color} wrap="wrap">  {item.detail}</Text> : null}
+          </Box>
+        )
+      })}
+    </Box>
+  )
+}
+
 interface SetupFormProps {
   action: 0 | 1
   cols: number
@@ -186,7 +228,11 @@ export function ConnectionSetupOverlay({ cols, t }: ConnectionSetupOverlayProps)
   const operation = useStore($connectionOperation)
   const sid = useStore($uiSessionId)
   const { gw } = useGateway()
-  const target = operation?.targets.find(isUnresolved) ?? null
+  const appBasedTargets = operation?.targets.filter(item => item.kind === 'app_based_mcp') ?? []
+  const focusableAppBasedTargets = appBasedTargets.filter(isAppBasedFocusable)
+  const [appBasedFocus, setAppBasedFocus] = useState(0)
+  const appBasedTarget = focusableAppBasedTargets[appBasedFocus] ?? null
+  const target = appBasedTargets.length > 0 ? appBasedTarget : operation?.targets.find(isUnresolved) ?? null
   const fields = useMemo<ConnectionTargetEnvField[]>(() => target?.required_env ?? [], [target?.required_env])
   const targetKey = `${operation?.opId ?? ''}:${target?.name ?? ''}`
   const [draft, setDraft] = useState<Record<string, string>>(() => initialDraft(fields))
@@ -206,11 +252,15 @@ export function ConnectionSetupOverlay({ cols, t }: ConnectionSetupOverlayProps)
   }, [targetKey])
 
   useEffect(() => {
+    setAppBasedFocus(current => Math.min(current, Math.max(0, focusableAppBasedTargets.length - 1)))
+  }, [focusableAppBasedTargets.length])
+
+  useEffect(() => {
     setDraft(current => ({ ...initialDraft(fields), ...current }))
   }, [fields])
 
   useEffect(() => {
-    if (target?.state === 'failed') {
+    if (target && ['failed', 'expired', 'pending'].includes(target.state)) {
       setSubmitting(false)
     }
 
@@ -283,8 +333,42 @@ export function ConnectionSetupOverlay({ cols, t }: ConnectionSetupOverlayProps)
     respond({ targets: [{ env: draft, name: target.name, status: 'approved' }] })
   }
 
+  const actOnAppBasedTarget = () => {
+    if (!target || !isAppBasedActionable(target)) {
+      return
+    }
+
+    respond({
+      targets: [{
+        name: target.name,
+        status: appBasedOpenSupported(target) ? 'open' : 'approved'
+      }]
+    })
+  }
+
   // A single input owner guarantees Esc and navigation cause exactly one action.
-  useInput((_ch, key) => {
+  useInput((ch, key) => {
+    if (appBasedTargets.length > 0) {
+      if (!target) {
+        if (key.escape || key.return) {
+          respond({ settled_by: 'continue' })
+        }
+      } else if (key.escape) {
+        cancel()
+      } else if (focusableAppBasedTargets.length > 1 && (key.upArrow || key.downArrow || key.tab)) {
+        const direction = key.upArrow || (key.shift && key.tab) ? -1 : 1
+        setAppBasedFocus(current => (
+          (current + direction + focusableAppBasedTargets.length) % focusableAppBasedTargets.length
+        ))
+      } else if (!submitting && isAppBasedActionable(target) && (
+        key.return || (appBasedOpenSupported(target) && ch.toLowerCase() === 'o')
+      )) {
+        actOnAppBasedTarget()
+      }
+
+      return
+    }
+
     if (settleOnKey(key)) {
       return
     }
@@ -306,7 +390,28 @@ export function ConnectionSetupOverlay({ cols, t }: ConnectionSetupOverlayProps)
     })
   })
 
-  if (!operation || !target) {
+  if (!operation || (appBasedTargets.length === 0 && !target)) {
+    return null
+  }
+
+  if (appBasedTargets.length > 0) {
+    const actionLabel = target && appBasedOpenSupported(target) ? 'Open' : 'Connect'
+
+    return (
+      <Box flexDirection="column">
+        <AppBasedMcpRows focusedName={target?.name} t={t} targets={appBasedTargets} />
+        <Text color={t.color.muted}>
+          {target
+            ? isAppBasedActionable(target)
+              ? `Enter ${actionLabel} · Esc Skip`
+              : 'Esc Skip'
+            : 'Enter Continue'}
+        </Text>
+      </Box>
+    )
+  }
+
+  if (!target) {
     return null
   }
 
