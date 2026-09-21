@@ -8362,7 +8362,8 @@
         "description": "What the card says about one row: ``tools/connectors/mcp.py::apply_answer``.",
         "enum": [
           "approved",
-          "skipped"
+          "skipped",
+          "open"
         ],
         "title": "ConnectionAnswerStatus",
         "type": "string"
@@ -8412,6 +8413,15 @@
         ],
         "title": "ConnectionAnswerTarget",
         "type": "object"
+      },
+      "ConnectionFailureReason": {
+        "enum": [
+          "launch_failed",
+          "startup_timeout",
+          "endpoint_unreachable"
+        ],
+        "title": "ConnectionFailureReason",
+        "type": "string"
       },
       "ConnectionOperationParams": {
         "additionalProperties": false,
@@ -8635,6 +8645,113 @@
             ],
             "default": null,
             "title": "Hint"
+          },
+          "app": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "App"
+          },
+          "availability": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Availability"
+          },
+          "app_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "App Version"
+          },
+          "min_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Min Version"
+          },
+          "endpoint": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Endpoint"
+          },
+          "open_supported": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Open Supported"
+          },
+          "launch_requested": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Launch Requested"
+          },
+          "launched_at": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Launched At"
+          },
+          "failure_reason": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ConnectionFailureReason"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
           }
         },
         "required": [
@@ -8818,7 +8935,8 @@
       "ConnectionTargetKind": {
         "enum": [
           "connector",
-          "mcp"
+          "mcp",
+          "app_based_mcp"
         ],
         "title": "ConnectionTargetKind",
         "type": "string"

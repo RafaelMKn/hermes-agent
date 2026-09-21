@@ -19,6 +19,7 @@ from .registry import event, method
 class ConnectionTargetKind(WireEnum):
     connector = "connector"
     mcp = "mcp"
+    app_based_mcp = "app_based_mcp"
 
 
 class ConnectionTargetAction(WireEnum):
@@ -40,6 +41,12 @@ class ConnectionTargetState(WireEnum):
     expired = "expired"
     unavailable = "unavailable"
     not_connected = "not_connected"
+
+
+class ConnectionFailureReason(WireEnum):
+    launch_failed = "launch_failed"
+    startup_timeout = "startup_timeout"
+    endpoint_unreachable = "endpoint_unreachable"
 
 
 class ConnectionActor(WireEnum):
@@ -90,6 +97,16 @@ class ConnectionOperationTarget(Payload):
     required_env: list[ConnectionTargetEnvField] | None = None
     tools: list[str] | None = None
     hint: str | None = None
+    # ``kind == app_based_mcp`` only: ``tools/connectors/operation.py::AppBasedMcpPayload``.
+    app: str | None = None
+    availability: str | None = None
+    app_version: str | None = None
+    min_version: str | None = None
+    endpoint: str | None = None
+    open_supported: bool | None = None
+    launch_requested: bool | None = None
+    launched_at: float | None = None
+    failure_reason: ConnectionFailureReason | None = None
 
 
 class ConnectionRequestPayload(Payload):
@@ -159,6 +176,7 @@ class ConnectionAnswerStatus(WireEnum):
 
     approved = "approved"
     skipped = "skipped"
+    open = "open"
 
 
 class ConnectionAnswerTarget(Params):

@@ -5,8 +5,8 @@ from __future__ import annotations
 import threading
 import time
 import uuid
-from dataclasses import dataclass, field
-from typing import Any, Callable, ClassVar, Dict, List, Optional
+from dataclasses import asdict, dataclass, field
+from typing import Any, Callable, ClassVar, Dict, List, Literal, Optional, Tuple, Union
 
 from tools.connectors.contract import RESOLVED_STATES, Actor, SettleReason, TargetState, allowed
 
@@ -16,6 +16,42 @@ OPERATION_DEADLINE_SECONDS = 300.0
 
 class IllegalTransition(ValueError):
     pass
+
+
+@dataclass(frozen=True)
+class ConnectorPayload:
+    kind: Literal["connector"]
+
+
+@dataclass(frozen=True)
+class McpPayload:
+    kind: Literal["mcp"]
+    tools: Tuple[str, ...] = ()
+    hint: Optional[str] = None
+    discovery_error: Optional[str] = None
+
+
+FailureReason = Literal["launch_failed", "startup_timeout", "endpoint_unreachable"]
+
+
+@dataclass(frozen=True)
+class AppBasedMcpPayload:
+    kind: Literal["app_based_mcp"]
+    app: str
+    availability: str
+    app_version: Optional[str] = None
+    min_version: Optional[str] = None
+    endpoint: Optional[str] = None
+    open_supported: bool = False
+    launch_requested: bool = False
+    launched_at: Optional[float] = None
+    failure_reason: Optional[FailureReason] = None
+    tools: Tuple[str, ...] = ()
+
+
+TargetPayload = Union[ConnectorPayload, McpPayload, AppBasedMcpPayload]
+
+_PAYLOAD_BY_KIND = {"connector": ConnectorPayload, "mcp": McpPayload, "app_based_mcp": AppBasedMcpPayload}
 
 
 @dataclass
@@ -37,12 +73,20 @@ class Target:
     # The credentials an MCP install still needs ({name, prompt, required}); the card draws a
     # field per entry and holds its verb until every required one has text.
     required_env: List[Dict[str, Any]] = field(default_factory=list)
-    # Fields a transition passes through to the model (``tools`` on a connected MCP target).
-    extra: Dict[str, Any] = field(default_factory=dict)
+    payload: Optional[TargetPayload] = None
+
+    def __post_init__(self) -> None:
+        if self.payload is None and self.kind in ("connector", "mcp"):
+            self.payload = _PAYLOAD_BY_KIND[self.kind](kind=self.kind)  # type: ignore[arg-type]
 
     @property
     def resolved(self) -> bool:
         return self.state in RESOLVED_STATES
+
+    def with_payload(self, **changes: Any) -> TargetPayload:
+        if self.payload is None:
+            raise IllegalTransition(f"{self.kind} {self.name}: no payload to update")
+        return _replace_payload(self.payload, changes)
 
     def snapshot(self, *, with_url: bool = True) -> Dict[str, Any]:
         out: Dict[str, Any] = {"name": self.name, "kind": self.kind, "action": self.action, "state": self.state.value}
@@ -58,8 +102,23 @@ class Target:
             out["attempt"] = self.attempt
         if self.required_env:
             out["required_env"] = self.required_env
-        out.update(self.extra)
+        if self.payload is not None:
+            for key, value in asdict(self.payload).items():
+                if key == "kind" or value is None or value == () or value is False:
+                    continue
+                out[key] = list(value) if isinstance(value, tuple) else value
         return out
+
+
+def _replace_payload(payload: TargetPayload, changes: Dict[str, Any]) -> TargetPayload:
+    from dataclasses import replace
+
+    unknown = set(changes) - set(asdict(payload))
+    if unknown:
+        raise IllegalTransition(f"{payload.kind} payload has no field {sorted(unknown)}")
+    if "tools" in changes:
+        changes["tools"] = tuple(changes["tools"])
+    return replace(payload, **changes)
 
 
 @dataclass
@@ -98,7 +157,7 @@ class ConnectionOperation:
     def transition(
         self, name: str, to: TargetState, actor: Actor, *, detail: Optional[str] = None,
         connect_url: Optional[str] = None, connection_id: Optional[str] = None, attempt: Optional[str] = None,
-        **extra: Any,
+        payload: Optional[TargetPayload] = None,
     ) -> Optional[Dict[str, Any]]:
         """Move one target; the contract decides whether ``actor`` may. Returns the change, or None
         when the target is already in ``to``. Allowed after settlement: the frozen result stays."""
@@ -121,8 +180,10 @@ class ConnectionOperation:
                 target.connection_id = connection_id
             if attempt is not None:
                 target.attempt = attempt
-            if extra:
-                target.extra = dict(extra)
+            if payload is not None:
+                if payload.kind != target.kind:
+                    raise IllegalTransition(f"{target.kind} {name}: payload is for kind {payload.kind!r}")
+                target.payload = payload
             snapshot = self._bump_locked()
         self.wake.set()
         self._changed(change, snapshot)

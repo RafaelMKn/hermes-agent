@@ -490,8 +490,17 @@ export interface ConnectionOperationTarget {
   required_env?: ConnectionTargetEnvField[] | null
   tools?: string[] | null
   hint?: string | null
+  app?: string | null
+  availability?: string | null
+  app_version?: string | null
+  min_version?: string | null
+  endpoint?: string | null
+  open_supported?: boolean | null
+  launch_requested?: boolean | null
+  launched_at?: number | null
+  failure_reason?: ConnectionFailureReason | null
 }
-export type ConnectionTargetKind = 'connector' | 'mcp'
+export type ConnectionTargetKind = 'connector' | 'mcp' | 'app_based_mcp'
 export type ConnectionTargetAction = 'authorize' | 'connect' | 'enable' | 'install' | 'reconnect'
 /** ``tools/connectors/contract.py::TargetState``. */
 export type ConnectionTargetState = 'pending' | 'initiated' | 'connected' | 'skipped' | 'failed' | 'expired' | 'unavailable' | 'not_connected'
@@ -503,6 +512,7 @@ export interface ConnectionTargetEnvField {
   default: string
   prompt?: string | null
 }
+export type ConnectionFailureReason = 'launch_failed' | 'startup_timeout' | 'endpoint_unreachable'
 export interface ConnectionWakeResult {
   status: string
 }
@@ -525,7 +535,7 @@ export interface ConnectionAnswerTarget {
   env?: Record<string, string> | null
 }
 /** What the card says about one row: ``tools/connectors/mcp.py::apply_answer``. */
-export type ConnectionAnswerStatus = 'approved' | 'skipped'
+export type ConnectionAnswerStatus = 'approved' | 'skipped' | 'open'
 export interface ConnectionRespondResult {
   status: string
   settled: boolean

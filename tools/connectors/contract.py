@@ -16,6 +16,8 @@ class TargetState(str, Enum):
     skipped = "skipped"
     failed = "failed"
     expired = "expired"
+    # This host cannot offer the target (wrong OS); resolved without a card.
+    unavailable = "unavailable"
     # Stamped by settle() on every unresolved target; never a transition target.
     not_connected = "not_connected"
 
@@ -33,9 +35,9 @@ class SettleReason(str, Enum):
     interrupt = "interrupt"
 
 
-KINDS: Tuple[str, ...] = ("connector", "mcp")
+KINDS: Tuple[str, ...] = ("connector", "mcp", "app_based_mcp")
 
-RESOLVED_STATES = frozenset({TargetState.connected, TargetState.skipped})
+RESOLVED_STATES = frozenset({TargetState.connected, TargetState.skipped, TargetState.unavailable})
 
 _S, _A = TargetState, Actor
 
@@ -52,6 +54,16 @@ TRANSITIONS: Dict[Tuple[str, TargetState], Dict[TargetState, Actor]] = {
     ("mcp", _S.pending): {_S.initiated: _A.backend_watcher, _S.failed: _A.backend_watcher, _S.skipped: _A.user},
     ("mcp", _S.initiated): {_S.connected: _A.backend_watcher, _S.failed: _A.backend_watcher, _S.skipped: _A.user},
     ("mcp", _S.failed): {_S.initiated: _A.user, _S.skipped: _A.user},
+    # An MCP hosted by a desktop application. `initiated` is the user's Open (or a Connect while the
+    # app already answers); `connected` is the backend seeing the server answer `initialize`.
+    ("app_based_mcp", _S.pending): {
+        _S.initiated: _A.user, _S.failed: _A.backend_watcher, _S.unavailable: _A.backend_watcher, _S.skipped: _A.user,
+    },
+    ("app_based_mcp", _S.initiated): {
+        _S.connected: _A.backend_watcher, _S.failed: _A.backend_watcher, _S.expired: _A.clock, _S.skipped: _A.user,
+    },
+    ("app_based_mcp", _S.failed): {_S.initiated: _A.user, _S.skipped: _A.user},
+    ("app_based_mcp", _S.expired): {_S.initiated: _A.user, _S.skipped: _A.user},
 }
 
 

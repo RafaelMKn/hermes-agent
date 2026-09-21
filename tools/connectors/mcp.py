@@ -60,12 +60,32 @@ def _configured_names() -> List[str]:
     return sorted(installed_servers())
 
 
+def app_based_names(names: List[str]) -> List[str]:
+    """The targets whose catalog entry is hosted by an application; they run the ``app_based_mcp`` kind."""
+    from hermes_cli.mcp_catalog import get_entry
+
+    out = []
+    for name in names:
+        entry = get_entry(name)
+        if entry is not None and entry.app_based:
+            out.append(name)
+    return out
+
+
 def validate_mcp_names(action: str, names: List[str]) -> Optional[str]:
     try:
         catalog = _catalog_names()
         configured = _configured_names()
     except Exception as exc:
         return f"could not read the MCP catalog: {exc}"
+    if action == "connect":
+        not_app = [n for n in names if n not in set(app_based_names(names))]
+        if not_app:
+            return (
+                f"'connect' with \"mcp\": true is for catalog entries hosted by a desktop application; "
+                f"{', '.join(not_app)} is not one. Use install / enable / authorize for other MCP servers."
+            )
+        return None
     allowed = set(catalog) if action == "install" else set(configured)
     unknown = [n for n in names if n not in allowed]
     if not unknown:
@@ -467,10 +487,8 @@ def _registered_tool_names(name: str, wait_seconds: float = 30.0) -> List[str]:
 
 
 def _connect(operation: ConnectionOperation, target: Target, tools: List[str], discovery_error: str = "") -> None:
-    extra: Dict[str, Any] = {"tools": tools}
-    if discovery_error:
-        extra["discovery_error"] = discovery_error
-    _move(operation, target, TargetState.connected, Actor.backend_watcher, **extra)
+    payload = target.with_payload(tools=tools, discovery_error=discovery_error or None)
+    _move(operation, target, TargetState.connected, Actor.backend_watcher, payload=payload)
 
 
 def _actor(target: Target) -> Actor:
@@ -710,6 +728,16 @@ def apply_answer(operation: ConnectionOperation, raw: str) -> None:
             except IllegalTransition:
                 if not target.resolved and not operation.settled:
                     raise
+        elif target.kind == "app_based_mcp":
+            app_runner = _APP_RUNNERS.get(operation.op_id)
+            if app_runner is None:
+                continue
+            if status == "open":
+                refusal = app_runner.request_open(operation, target)
+                if refusal:
+                    operation.refresh(target.name, connect_url=None, detail=refusal, actor=Actor.backend_watcher)
+            elif status == "approved":
+                app_runner.request_connect(operation, target)
         elif status == "approved" and runner is not None:
             if target.state == TargetState.pending:
                 runner.run(_APPROVE, operation, target, _answer_env(entry))
@@ -775,6 +803,61 @@ def _off_desktop_result(runner: _Runner, names: List[str], action: str, session_
     return json.dumps(payload, ensure_ascii=False)
 
 
+# op_id -> the app-based kind's runner, reachable from the RPC thread for Open and Connect.
+_APP_RUNNERS: Dict[str, Any] = {}
+
+
+def _run_app_based(names: List[str], *, connection_callback: Any, session_key: str,
+                   tool_call_id: Optional[str]) -> str:
+    """The ``app_based_mcp`` journey: install the server block if absent, then observe the application."""
+    from tools.connectors.app_based_mcp import NOTE as APP_NOTE
+    from tools.connectors.app_based_mcp import Runner as AppRunner
+
+    try:
+        _ensure_installed(names)
+    except Exception as exc:
+        return tool_error(f"could not configure {', '.join(names)}: {exc}")
+    app_runner = AppRunner()
+    targets = [Target(n, "app_based_mcp", "connect") for n in names]
+
+    def prepare(operation: ConnectionOperation) -> None:
+        _APP_RUNNERS[operation.op_id] = app_runner
+        app_runner.prepare(operation)
+
+    if connection_callback is None:
+        operation = _DetachedOperation(targets, session_key=session_key)
+        try:
+            prepare(operation)
+            operation.settle(SettleReason.all_resolved if operation.all_resolved else SettleReason.deadline)
+            payload = operation.result(with_urls=False)
+            payload["status"], payload["note"] = "settled", APP_NOTE
+            return json.dumps(payload, ensure_ascii=False)
+        finally:
+            _APP_RUNNERS.pop(operation.op_id, None)
+    try:
+        return run_operation(
+            targets, Kind(prepare=prepare, observe=app_runner.observe, note=APP_NOTE),
+            session_key=session_key, tool_call_id=tool_call_id,
+            connection_callback=connection_callback, with_urls_in_result=False,
+        )
+    finally:
+        if app_runner.operation is not None:
+            _APP_RUNNERS.pop(app_runner.operation.op_id, None)
+
+
+def _ensure_installed(names: List[str]) -> None:
+    """Write the manifest's server block for an application-hosted entry that has none; no probe, no prompt."""
+    from hermes_cli.mcp_catalog import card_install_config, installed_servers
+    from hermes_cli.mcp_config import _save_mcp_server
+
+    present = installed_servers()
+    for name in names:
+        if name in present:
+            continue
+        if not _save_mcp_server(name, card_install_config(_catalog_entry(name))):
+            raise RuntimeError(f"'{name}' was rejected: suspicious command/args configuration")
+
+
 def run_mcp_operation(
     names: List[str],
     action: str,
@@ -787,8 +870,11 @@ def run_mcp_operation(
     error = validate_mcp_names(action, names)
     if error:
         return tool_error(error)
-    runner = open_runner(action, backend)
     session_key = operation_session_key(session_id)
+    if action == "connect":
+        return _run_app_based(names, connection_callback=connection_callback, session_key=session_key,
+                              tool_call_id=tool_call_id)
+    runner = open_runner(action, backend)
     # Every interactive surface that renders the card attaches this callback. Registry dispatch and
     # messaging sessions attach none, so they receive the link instead of opening an unanswerable op.
     if connection_callback is None:

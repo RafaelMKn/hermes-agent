@@ -57,6 +57,8 @@ def run_operation(
         )
     try:
         kind.prepare(operation)
+        # Every target resolved in prepare: the result is final and no card is owed.
+        operation.settle_if_all_resolved()
         if connection_callback is not None and not operation.settled:
             connection_callback(operation.request_payload())
         _watch(operation, kind, tick_seconds)
